@@ -78,17 +78,25 @@ public class GameView extends SurfaceView implements Callback,
 		public static final int STATE_RUNNING = 4;
 		public static final int STATE_WIN = 5;
 
-		private static final int DEFAULT_GUARD_SPEED = 5;
+		private static final int DEFAULT_GUARD_SPEED = 3;
 		private static final int DEFAULT_BALL_SPEED = 400;
 
 		private static final int DEFAULT_RANDOM_RATIO = 3;
 
+		private static final float GOD_THRESHOLD_X = 10;
+		private static final float GOD_THRESHOLD_Y = 10;
+
 		/** Used to figure out elapsed time between frames */
 		private long mLastTime;
+
+		private float mLastX;
+		private float mLastY;
 
 		private long mTotalScore;
 		private int mLife;
 		private int mBlockCount;
+
+		private boolean mGodMod = false;
 
 		private int mRandomRatio = DEFAULT_RANDOM_RATIO;
 
@@ -211,28 +219,37 @@ public class GameView extends SurfaceView implements Callback,
 			if ((mBallY + mBallRadius) > (mCanvasHeight - 0.1F)) {
 				Log.d(TAG, "collision: down");
 
-				mBallSpeed = 0;
+				if (mGodMod) {
+					mBallDegree = -mBallDegree + random;
+				} else {
+					mBallSpeed = 0;
 
-				Message msg = mHandler.obtainMessage();
-				msg.what = MESSAGE_LIFE;
-				Bundle b = new Bundle();
-				b.putInt("life", --mLife);
-				msg.setData(b);
-				mHandler.sendMessage(msg);
+					sendLife(--mLife);
 
-				Log.d(TAG, "mLife: " + mLife);
+					Log.d(TAG, "mLife: " + mLife);
 
-				if (mLife <= 0) {
-					setState(STATE_LOSE);
+					if (mLife <= 0) {
+						setState(STATE_LOSE);
+					}
 				}
-			} else if ((mBallY - mBallRadius) < 0.1F
-					|| mBallRegion.op(mGuardRegion, Op.INTERSECT)) {
-				Log.d(TAG, "collision: up guard");
+			} else if ((mBallY - mBallRadius) < 0.1F) {
+				Log.d(TAG, "collision: up");
 				mBallDegree = -mBallDegree + random;
-			} else if ((mBallX - mBallRadius) < 0.1F
-					|| (mBallX + mBallRadius) > (mCanvasWidth - 0.1F)) {
-				Log.d(TAG, "collision: left right");
+				mBallY = mBallRadius;
+			} else if (mBallRegion.op(mGuardRegion, Op.INTERSECT)) {
+				Log.d(TAG, "collision: guard");
+				float diff = mBallX - (mGuardX + mGuardWidth / 2);
+				Log.d(TAG, "diff: " + (diff / 10));
+				mBallDegree = -mBallDegree + diff / 10 + random;
+				mBallY = mCanvasHeight - mGuardHeight - mBallRadius;
+			} else if ((mBallX - mBallRadius) < 0.1F) {
+				Log.d(TAG, "collision: left");
 				mBallDegree = -mBallDegree + 180 + random;
+				mBallX = mBallRadius;
+			} else if ((mBallX + mBallRadius) > (mCanvasWidth - 0.1F)) {
+				Log.d(TAG, "collision: right");
+				mBallDegree = -mBallDegree + 180 + random;
+				mBallX = mCanvasWidth - mBallRadius;
 			} else {
 				for (Block block : mBlocks) {
 					if (block.state == Block.STATE_BROKEN) {
@@ -251,23 +268,13 @@ public class GameView extends SurfaceView implements Callback,
 
 						block.state = Block.STATE_BROKEN;
 
-						Message msg = mHandler.obtainMessage();
-						msg.what = MESSAGE_SCORE;
-						Bundle b = new Bundle();
 						mTotalScore += block.score;
-						b.putLong("score", mTotalScore);
-						msg.setData(b);
-						mHandler.sendMessage(msg);
+						sendScore(mTotalScore);
 
 						mBlockCount--;
+						Log.d(TAG, "mBlockCount: " + mBlockCount);
 						if (mBlockCount <= 0) {
-							msg = mHandler.obtainMessage();
-							msg.what = MESSAGE_STATE;
-							b = new Bundle();
-							b.putString("text", "You win!!!");
-							b.putInt("viz", View.INVISIBLE);
-							msg.setData(b);
-							mHandler.sendMessage(msg);
+							setState(STATE_WIN);
 						}
 						break;
 					}
@@ -338,33 +345,44 @@ public class GameView extends SurfaceView implements Callback,
 			}
 		}
 
+		private void sendLife(int life) {
+			Message msg = mHandler.obtainMessage();
+			msg.what = MESSAGE_LIFE;
+			Bundle b = new Bundle();
+			b.putInt("life", mLife);
+			msg.setData(b);
+			mHandler.sendMessage(msg);
+		}
+
+		private void sendScore(long score) {
+			Message msg = mHandler.obtainMessage();
+			msg.what = MESSAGE_SCORE;
+			Bundle b = new Bundle();
+			b.putLong("score", mTotalScore);
+			msg.setData(b);
+			mHandler.sendMessage(msg);
+		}
+
 		public void doStart(boolean bt) {
 			synchronized (mSurfaceHolder) {
 				Log.d(TAG, "doStart");
 
 				// game
+				mGodMod = false;
+				mBallPaint.setColor(Color.RED);
+
 				mTotalScore = 0;
-				Message msg = mHandler.obtainMessage();
-				msg.what = MESSAGE_SCORE;
-				Bundle b = new Bundle();
-				b.putLong("score", mTotalScore);
-				msg.setData(b);
-				mHandler.sendMessage(msg);
+				sendScore(mTotalScore);
 
 				mLife = 1;
-				msg = mHandler.obtainMessage();
-				msg.what = MESSAGE_LIFE;
-				b = new Bundle();
-				b.putInt("life", mLife);
-				msg.setData(b);
-				mHandler.sendMessage(msg);
+				sendLife(mLife);
 
 				// canvas
 				mCanvasRegion = new Region(0, 0, mCanvasWidth, mCanvasHeight);
 
 				// guard
-				mGuardWidth = mCanvasWidth / 4F;
-				mGuardHeight = mCanvasHeight / 15F;
+				mGuardWidth = mCanvasWidth / 3F;
+				mGuardHeight = mCanvasHeight / 30F;
 
 				mGuardX = (mCanvasWidth - mGuardWidth) / 2;
 				mGuardY = mCanvasHeight - mGuardHeight;
@@ -379,7 +397,7 @@ public class GameView extends SurfaceView implements Callback,
 				mGuardSpeed = DEFAULT_GUARD_SPEED;
 
 				// ball
-				mBallRadius = mCanvasWidth / 10F;
+				mBallRadius = mCanvasWidth / 15F;
 
 				mBallX = mCanvasWidth / 2F;
 				mBallY = mCanvasHeight / 2F + mBallRadius;
@@ -394,16 +412,18 @@ public class GameView extends SurfaceView implements Callback,
 
 				mBallSpeed = DEFAULT_BALL_SPEED;
 				mRandomRatio = DEFAULT_RANDOM_RATIO;
+				mGuardSpeed = DEFAULT_GUARD_SPEED;
 
 				if (bt) {
 					mBallSpeed = DEFAULT_BALL_SPEED * 3;
 					mRandomRatio = DEFAULT_RANDOM_RATIO * 10;
+					mGuardSpeed = DEFAULT_GUARD_SPEED * 3;
 				}
 
 				// blocks
 				mBlocks.clear();
-				int lineCount = 3;
-				int blockCountEveryLine = 8;
+				int lineCount = 2;
+				int blockCountEveryLine = 7;
 				float blockWidth = mCanvasWidth / blockCountEveryLine;
 				float blockHeight = mCanvasHeight / 20F;
 				for (int i = 0; i < lineCount; i++) {
@@ -462,7 +482,7 @@ public class GameView extends SurfaceView implements Callback,
 
 				if (mMode == STATE_RUNNING) {
 					mSensorManager.registerListener(GameView.this,
-							mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+							mAccelerometer, SensorManager.SENSOR_DELAY_GAME);
 
 					Message msg = mHandler.obtainMessage();
 					msg.what = MESSAGE_STATE;
@@ -477,7 +497,10 @@ public class GameView extends SurfaceView implements Callback,
 					CharSequence str = "";
 					if (mMode == STATE_LOSE) {
 						str = "You lose.";
+					} else if (mMode == STATE_WIN) {
+						str = "You win!";
 					}
+
 					Message msg = mHandler.obtainMessage();
 					msg.what = MESSAGE_STATE;
 					Bundle b = new Bundle();
@@ -500,6 +523,18 @@ public class GameView extends SurfaceView implements Callback,
 					} else if (mGuardX + mGuardWidth > mCanvasWidth) {
 						mGuardX = mCanvasWidth - mGuardWidth;
 					}
+
+					Log.d(TAG, "mLastX - x: " + (mLastX - x));
+					Log.d(TAG, "mLastY - y: " + (mLastY - y));
+					if (Math.abs(mLastX - x) > GOD_THRESHOLD_X
+							&& Math.abs(mLastY - y) > GOD_THRESHOLD_Y) {
+						Log.d(TAG, "god active");
+						mBallPaint.setColor(Color.YELLOW);
+						mGodMod = true;
+					}
+
+					mLastX = x;
+					mLastY = y;
 				}
 			}
 		}
@@ -598,15 +633,15 @@ public class GameView extends SurfaceView implements Callback,
 
 	@Override
 	public void onSensorChanged(SensorEvent event) {
-		if (this.accuracy >= SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM) {
-			// Save time that event was received
-			this.timestamp = System.currentTimeMillis();
-			float x = event.values[0];
-			float y = event.values[1];
-			float z = event.values[2];
+		// if (this.accuracy >= SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM) {
+		// Save time that event was received
+		this.timestamp = System.currentTimeMillis();
+		float x = event.values[0];
+		float y = event.values[1];
+		float z = event.values[2];
 
-			thread.doSensorChanged(x, y, z);
-		}
+		thread.doSensorChanged(x, y, z);
+		// }
 	}
 
 	@Override
