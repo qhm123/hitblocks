@@ -16,6 +16,10 @@ import android.graphics.RectF;
 import android.graphics.Paint.Style;
 import android.graphics.Region;
 import android.graphics.Region.Op;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -27,7 +31,8 @@ import android.view.View;
 import android.view.SurfaceHolder.Callback;
 import android.view.SurfaceView;
 
-public class GameView extends SurfaceView implements Callback {
+public class GameView extends SurfaceView implements Callback,
+		SensorEventListener {
 
 	private static final String TAG = GameView.class.getSimpleName();
 
@@ -38,6 +43,7 @@ public class GameView extends SurfaceView implements Callback {
 
 		public RectF rectF;
 		public int state;
+		public int score;
 
 		public void draw(Canvas c, Paint paint) {
 			if (state == STATE_GOOD) {
@@ -59,6 +65,10 @@ public class GameView extends SurfaceView implements Callback {
 
 		private static final float MATH_PI = (float) Math.PI;
 
+		public static final int MESSAGE_LIFE = 0;
+		public static final int MESSAGE_SCORE = 1;
+		public static final int MESSAGE_STATE = 2;
+
 		/*
 		 * State-tracking constants
 		 */
@@ -68,8 +78,19 @@ public class GameView extends SurfaceView implements Callback {
 		public static final int STATE_RUNNING = 4;
 		public static final int STATE_WIN = 5;
 
+		private static final int DEFAULT_GUARD_SPEED = 5;
+		private static final int DEFAULT_BALL_SPEED = 400;
+
+		private static final int DEFAULT_RANDOM_RATIO = 3;
+
 		/** Used to figure out elapsed time between frames */
 		private long mLastTime;
+
+		private long mTotalScore;
+		private int mLife;
+		private int mBlockCount;
+
+		private int mRandomRatio = DEFAULT_RANDOM_RATIO;
 
 		private int mMode;
 
@@ -79,7 +100,7 @@ public class GameView extends SurfaceView implements Callback {
 		private float mGuardWidth;
 		private float mGuardHeight;
 
-		private float mGuardSpeed;
+		private float mGuardSpeed = DEFAULT_GUARD_SPEED;
 
 		private Region mGuardRegion;
 
@@ -90,7 +111,7 @@ public class GameView extends SurfaceView implements Callback {
 
 		private float mBallRadius;
 
-		private float mBallSpeed = 300;
+		private float mBallSpeed = DEFAULT_BALL_SPEED;
 
 		private float mBallDegree;
 
@@ -179,17 +200,37 @@ public class GameView extends SurfaceView implements Callback {
 			// + ", mGuardRegion bounds: " + mGuardRegion.getBounds());
 
 			// if (mBallRegion.quickContains(mGuardRegion.getBounds())) {
-			float random = 3 * (float) (Math.random() - Math.random());
+			float random = mRandomRatio
+					* (float) (Math.random() - Math.random());
 			// Log.d(TAG, "random: " + random);
 
+			mGuardRegion.set((int) mGuardX, (int) mGuardY,
+					(int) (mGuardX + mGuardWidth),
+					(int) (mGuardY + mGuardHeight));
 			// Log.d(TAG, "before mBallDegree: " + mBallDegree);
-			if (mBallRegion.op(mGuardRegion, Op.INTERSECT)
-					|| (mBallY - mBallRadius) < 1F
-					|| (mBallY + mBallRadius) > (mCanvasHeight - 1F)) {
-				Log.d(TAG, "collision: up down");
+			if ((mBallY + mBallRadius) > (mCanvasHeight - 0.1F)) {
+				Log.d(TAG, "collision: down");
+
+				mBallSpeed = 0;
+
+				Message msg = mHandler.obtainMessage();
+				msg.what = MESSAGE_LIFE;
+				Bundle b = new Bundle();
+				b.putInt("life", --mLife);
+				msg.setData(b);
+				mHandler.sendMessage(msg);
+
+				Log.d(TAG, "mLife: " + mLife);
+
+				if (mLife <= 0) {
+					setState(STATE_LOSE);
+				}
+			} else if ((mBallY - mBallRadius) < 0.1F
+					|| mBallRegion.op(mGuardRegion, Op.INTERSECT)) {
+				Log.d(TAG, "collision: up guard");
 				mBallDegree = -mBallDegree + random;
-			} else if ((mBallX - mBallRadius) < 1F
-					|| (mBallX + mBallRadius) > (mCanvasWidth - 1F)) {
+			} else if ((mBallX - mBallRadius) < 0.1F
+					|| (mBallX + mBallRadius) > (mCanvasWidth - 0.1F)) {
 				Log.d(TAG, "collision: left right");
 				mBallDegree = -mBallDegree + 180 + random;
 			} else {
@@ -209,6 +250,25 @@ public class GameView extends SurfaceView implements Callback {
 						mBallDegree = -mBallDegree + random;
 
 						block.state = Block.STATE_BROKEN;
+
+						Message msg = mHandler.obtainMessage();
+						msg.what = MESSAGE_SCORE;
+						Bundle b = new Bundle();
+						mTotalScore += block.score;
+						b.putLong("score", mTotalScore);
+						msg.setData(b);
+						mHandler.sendMessage(msg);
+
+						mBlockCount--;
+						if (mBlockCount <= 0) {
+							msg = mHandler.obtainMessage();
+							msg.what = MESSAGE_STATE;
+							b = new Bundle();
+							b.putString("text", "You win!!!");
+							b.putInt("viz", View.INVISIBLE);
+							msg.setData(b);
+							mHandler.sendMessage(msg);
+						}
 						break;
 					}
 				}
@@ -278,8 +338,27 @@ public class GameView extends SurfaceView implements Callback {
 			}
 		}
 
-		public void doStart() {
+		public void doStart(boolean bt) {
 			synchronized (mSurfaceHolder) {
+				Log.d(TAG, "doStart");
+
+				// game
+				mTotalScore = 0;
+				Message msg = mHandler.obtainMessage();
+				msg.what = MESSAGE_SCORE;
+				Bundle b = new Bundle();
+				b.putLong("score", mTotalScore);
+				msg.setData(b);
+				mHandler.sendMessage(msg);
+
+				mLife = 1;
+				msg = mHandler.obtainMessage();
+				msg.what = MESSAGE_LIFE;
+				b = new Bundle();
+				b.putInt("life", mLife);
+				msg.setData(b);
+				mHandler.sendMessage(msg);
+
 				// canvas
 				mCanvasRegion = new Region(0, 0, mCanvasWidth, mCanvasHeight);
 
@@ -297,6 +376,8 @@ public class GameView extends SurfaceView implements Callback {
 				mGuardRegion = new Region();
 				mGuardRegion.set(guardRect);
 
+				mGuardSpeed = DEFAULT_GUARD_SPEED;
+
 				// ball
 				mBallRadius = mCanvasWidth / 10F;
 
@@ -311,7 +392,16 @@ public class GameView extends SurfaceView implements Callback {
 
 				mBallDegree = 90;
 
+				mBallSpeed = DEFAULT_BALL_SPEED;
+				mRandomRatio = DEFAULT_RANDOM_RATIO;
+
+				if (bt) {
+					mBallSpeed = DEFAULT_BALL_SPEED * 3;
+					mRandomRatio = DEFAULT_RANDOM_RATIO * 10;
+				}
+
 				// blocks
+				mBlocks.clear();
 				int lineCount = 3;
 				int blockCountEveryLine = 8;
 				float blockWidth = mCanvasWidth / blockCountEveryLine;
@@ -319,6 +409,7 @@ public class GameView extends SurfaceView implements Callback {
 				for (int i = 0; i < lineCount; i++) {
 					for (int j = 0; j < blockCountEveryLine; j++) {
 						Block block = new Block();
+						block.score = 100;
 						block.state = Block.STATE_GOOD;
 						block.rectF = new RectF(j * blockWidth,
 								i * blockHeight, (j + 1) * blockWidth - 1,
@@ -326,6 +417,7 @@ public class GameView extends SurfaceView implements Callback {
 						mBlocks.add(block);
 					}
 				}
+				mBlockCount = lineCount * blockCountEveryLine;
 
 				// start
 				mLastTime = System.currentTimeMillis() + 100;
@@ -366,37 +458,28 @@ public class GameView extends SurfaceView implements Callback {
 			synchronized (mSurfaceHolder) {
 				mMode = mode;
 
+				Log.d(TAG, "mMode: " + mMode);
+
 				if (mMode == STATE_RUNNING) {
+					mSensorManager.registerListener(GameView.this,
+							mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+
 					Message msg = mHandler.obtainMessage();
+					msg.what = MESSAGE_STATE;
 					Bundle b = new Bundle();
 					b.putString("text", "");
 					b.putInt("viz", View.INVISIBLE);
 					msg.setData(b);
 					mHandler.sendMessage(msg);
 				} else {
-					// mRotating = 0;
-					// mEngineFiring = false;
-					Resources res = mContext.getResources();
-					CharSequence str = "";
-					// if (mMode == STATE_READY)
-					// str = res.getText(R.string.mode_ready);
-					// else if (mMode == STATE_PAUSE)
-					// str = res.getText(R.string.mode_pause);
-					// else if (mMode == STATE_LOSE)
-					// str = res.getText(R.string.mode_lose);
-					// else if (mMode == STATE_WIN)
-					// str = res.getString(R.string.mode_win_prefix)
-					// + mWinsInARow + " "
-					// + res.getString(R.string.mode_win_suffix);
-					//
-					// if (message != null) {
-					// str = message + "\n" + str;
-					// }
-					//
-					// if (mMode == STATE_LOSE)
-					// mWinsInARow = 0;
+					mSensorManager.unregisterListener(GameView.this);
 
+					CharSequence str = "";
+					if (mMode == STATE_LOSE) {
+						str = "You lose.";
+					}
 					Message msg = mHandler.obtainMessage();
+					msg.what = MESSAGE_STATE;
 					Bundle b = new Bundle();
 					b.putString("text", str.toString());
 					b.putInt("viz", View.VISIBLE);
@@ -405,9 +488,40 @@ public class GameView extends SurfaceView implements Callback {
 				}
 			}
 		}
+
+		public void doSensorChanged(float x, float y, float z) {
+			synchronized (mSurfaceHolder) {
+				if (mMode == STATE_RUNNING) {
+					Log.d(TAG, "doSensorChanged: " + x + ", y: " + y + ", z: "
+							+ z + ", mGuardX: " + mGuardX);
+					mGuardX -= (x * mGuardSpeed);
+					if (mGuardX < 0) {
+						mGuardX = 0;
+					} else if (mGuardX + mGuardWidth > mCanvasWidth) {
+						mGuardX = mCanvasWidth - mGuardWidth;
+					}
+				}
+			}
+		}
 	}
 
 	private GameThread thread;
+
+	private final SensorManager mSensorManager;
+	private final Sensor mAccelerometer;
+
+	private int accuracy;
+	private long timestamp;
+
+	private GameMessageHandler mGameMessageHandler;
+
+	public void setGameMessageHandler(GameMessageHandler h) {
+		mGameMessageHandler = h;
+	}
+
+	public interface GameMessageHandler {
+		void handleMessage(Message m);
+	}
 
 	public GameView(Context context, AttributeSet attrs) {
 		super(context, attrs);
@@ -420,10 +534,18 @@ public class GameView extends SurfaceView implements Callback {
 		thread = new GameThread(holder, context, new Handler() {
 			@Override
 			public void handleMessage(Message m) {
+				if (mGameMessageHandler != null) {
+					mGameMessageHandler.handleMessage(m);
+				}
 			}
 		});
 
 		setFocusable(true); // make sure we get key events
+
+		mSensorManager = (SensorManager) context
+				.getSystemService(Context.SENSOR_SERVICE);
+		mAccelerometer = mSensorManager
+				.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
 	}
 
 	/**
@@ -472,6 +594,24 @@ public class GameView extends SurfaceView implements Callback {
 			} catch (InterruptedException e) {
 			}
 		}
+	}
+
+	@Override
+	public void onSensorChanged(SensorEvent event) {
+		if (this.accuracy >= SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM) {
+			// Save time that event was received
+			this.timestamp = System.currentTimeMillis();
+			float x = event.values[0];
+			float y = event.values[1];
+			float z = event.values[2];
+
+			thread.doSensorChanged(x, y, z);
+		}
+	}
+
+	@Override
+	public void onAccuracyChanged(Sensor sensor, int accuracy) {
+		this.accuracy = accuracy;
 	}
 
 }

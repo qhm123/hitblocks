@@ -1,14 +1,19 @@
 package com.qhm123.hitblocks;
 
-import com.qhm123.hitblocks.GameView.GameThread;
-
-import android.os.Bundle;
 import android.app.Activity;
+import android.os.Bundle;
+import android.os.Message;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.TextView;
 
-public class MainActivity extends Activity {
+import com.qhm123.hitblocks.GameView.GameMessageHandler;
+import com.qhm123.hitblocks.GameView.GameThread;
+
+public class MainActivity extends Activity implements GameMessageHandler {
+
+	private static final String TAG = MainActivity.class.getSimpleName();
 
 	private GameView mGameView;
 	private TextView mScore;
@@ -22,10 +27,11 @@ public class MainActivity extends Activity {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_main);
 
-		mGameView = (GameView) findViewById(R.id.game_view);
 		mScore = (TextView) findViewById(R.id.score);
 		mLife = (TextView) findViewById(R.id.life);
 		mGameMessage = (TextView) findViewById(R.id.game_message);
+		mGameView = (GameView) findViewById(R.id.game_view);
+		mGameView.setGameMessageHandler(this);
 
 		mGameThread = mGameView.getThread();
 	}
@@ -38,7 +44,14 @@ public class MainActivity extends Activity {
 
 	@Override
 	public boolean onOptionsItemSelected(MenuItem item) {
-		mGameThread.doStart();
+		switch (item.getItemId()) {
+		case R.id.menu_start:
+			mGameThread.doStart(false);
+			break;
+		case R.id.menu_hard:
+			mGameThread.doStart(true);
+			break;
+		}
 		return super.onOptionsItemSelected(item);
 	}
 
@@ -54,6 +67,27 @@ public class MainActivity extends Activity {
 		super.onResume();
 
 		// mGameThread.unpause();
+	}
+
+	@Override
+	public void handleMessage(Message m) {
+		Log.d(TAG, "msg: " + m.what);
+		switch (m.what) {
+		case GameThread.MESSAGE_LIFE:
+			int life = m.getData().getInt("life");
+			mLife.setText("life: " + life);
+			break;
+		case GameThread.MESSAGE_SCORE:
+			long score = m.getData().getLong("score");
+			mScore.setText("score: " + score);
+			break;
+		case GameThread.MESSAGE_STATE:
+			String text = m.getData().getString("text");
+			int viz = m.getData().getInt("viz");
+			mGameMessage.setText(text);
+			mGameMessage.setVisibility(viz);
+			break;
+		}
 	}
 
 }
